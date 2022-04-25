@@ -61,3 +61,31 @@ func main() {
 
 ```
 There are four Free methods to use, `Preset` to set preset on the fly, `Note` to fire a note on/off for given duration, `CC` to send a single control change message && `PC` for program changes. 
+
+# Generator
+
+wip
+
+```go
+package main
+
+import (
+	m "github.com/bh90210/models"
+	"github.com/bh90210/models/generate"
+)
+
+func main() {
+	p, err := m.NewProject(m.CYCLES)
+	if err != nil {
+		panic(err)
+	}
+	defer p.Close()
+
+	s := generate.NewSong(p)
+	// Play generated song.
+	s.Play()
+    // Export song as YAML file.
+	s.Save("/path/to/save/file.yaml")
+}
+
+```
