@@ -11,19 +11,19 @@ import (
 	driver "gitlab.com/gomidi/rtmididrv"
 )
 
-type model string
+type Model string
 
 // Model
 const (
-	CYCLES  model = "Model:Cycles"
-	SAMPLES model = "Model:Samples"
+	CYCLES  Model = "Model:Cycles"
+	SAMPLES Model = "Model:Samples"
 )
 
-type voice int8
+type Track int8
 
-// Voices/Tracks
+// Tracks
 const (
-	T1 voice = iota
+	T1 Track = iota
 	T2
 	T3
 	T4
@@ -31,11 +31,11 @@ const (
 	T6
 )
 
-type notes int8
+type Note int8
 
-// Keys/letter notes
+// Keys/letter Note
 const (
-	A0 notes = iota + 21
+	A0 Note = iota + 21
 	As0
 	B0
 	C1
@@ -135,54 +135,54 @@ const (
 	As8
 	B8
 
-	Bf0 notes = As0
-	Df1 notes = Cs1
-	Ef1 notes = Ds1
-	Gf1 notes = Fs1
-	Af1 notes = Gs1
-	Bf1 notes = As1
-	Df2 notes = Cs2
-	Ef2 notes = Ds2
-	Gf2 notes = Fs2
-	Af2 notes = Gs2
-	Bf2 notes = As2
-	Df3 notes = Cs3
-	Ef3 notes = Ds3
-	Gf3 notes = Fs3
-	Af3 notes = Gs3
-	Bf3 notes = As3
-	Df4 notes = Cs4
-	Ef4 notes = Ds4
-	Gf4 notes = Fs4
-	Af4 notes = Gs4
-	Bf4 notes = As4
-	Df5 notes = Cs5
-	Ef5 notes = Ds5
-	Gf5 notes = Fs5
-	Af5 notes = Gs5
-	Bf5 notes = As5
-	Df6 notes = Cs6
-	Ef6 notes = Ds6
-	Gf6 notes = Fs6
-	Af6 notes = Gs6
-	Bf6 notes = As6
-	Df7 notes = Cs7
-	Ef7 notes = Ds7
-	Gf7 notes = Fs7
-	Af7 notes = Gs7
-	Bf7 notes = As7
-	Df8 notes = Cs8
-	Ef8 notes = Ds8
-	Gf8 notes = Fs8
-	Af8 notes = Gs8
-	Bf8 notes = As8
+	Bf0 Note = As0
+	Df1 Note = Cs1
+	Ef1 Note = Ds1
+	Gf1 Note = Fs1
+	Af1 Note = Gs1
+	Bf1 Note = As1
+	Df2 Note = Cs2
+	Ef2 Note = Ds2
+	Gf2 Note = Fs2
+	Af2 Note = Gs2
+	Bf2 Note = As2
+	Df3 Note = Cs3
+	Ef3 Note = Ds3
+	Gf3 Note = Fs3
+	Af3 Note = Gs3
+	Bf3 Note = As3
+	Df4 Note = Cs4
+	Ef4 Note = Ds4
+	Gf4 Note = Fs4
+	Af4 Note = Gs4
+	Bf4 Note = As4
+	Df5 Note = Cs5
+	Ef5 Note = Ds5
+	Gf5 Note = Fs5
+	Af5 Note = Gs5
+	Bf5 Note = As5
+	Df6 Note = Cs6
+	Ef6 Note = Ds6
+	Gf6 Note = Fs6
+	Af6 Note = Gs6
+	Bf6 Note = As6
+	Df7 Note = Cs7
+	Ef7 Note = Ds7
+	Gf7 Note = Fs7
+	Af7 Note = Gs7
+	Bf7 Note = As7
+	Df8 Note = Cs8
+	Ef8 Note = Ds8
+	Gf8 Note = Fs8
+	Af8 Note = Gs8
+	Bf8 Note = As8
 )
 
-type chords int8
+type Chords int8
 
 // Chords
 const (
-	Unisonx2 chords = iota
+	Unisonx2 Chords = iota
 	Unisonx3
 	Unisonx4
 	Minor
@@ -276,11 +276,11 @@ const (
 	LFODEPTH
 )
 
-type machine int8
+type Machine int8
 
 // Machines
 const (
-	KICK machine = iota
+	KICK Machine = iota
 	SNARE
 	METAL
 	PERC
@@ -288,38 +288,46 @@ const (
 	CHORD
 )
 
-type scaleMode bool
+type ScaleMode bool
 
 const (
-	PTN scaleMode = true
-	TRK scaleMode = false
+	PTN ScaleMode = true
+	TRK ScaleMode = false
 )
 
 // Project long description of the data structure, methods, behaviors and useage.
 type Project struct {
-	model
+	Model
 
-	mu *sync.Mutex
+	mu *sync.RWMutex
 	// midi fields
 	drv midi.Driver
 	in  midi.In
 	out midi.Out
 	wr  *writer.Writer
+
+	on map[Track]*active
 }
 
-type preset map[Parameter]int8
+type active struct {
+	Note
+	cancel chan bool
+}
+
+type Preset map[Parameter]int8
 
 // NewProject initiates and returns a *Project struct.
-func NewProject(m model) (*Project, error) {
+func NewProject(m Model) (*Project, error) {
 	drv, err := driver.New()
 	if err != nil {
 		return nil, err
 	}
 
 	p := &Project{
-		model: m,
-		mu:    new(sync.Mutex),
+		Model: m,
+		mu:    new(sync.RWMutex),
 		drv:   drv,
+		on:    make(map[Track]*active),
 	}
 
 	// find elektron and assign it to in/out
@@ -362,67 +370,93 @@ func NewProject(m model) (*Project, error) {
 	return p, nil
 }
 
-// Preset immediately sets (CC) provided parameters.
-func (f *Project) Preset(track voice, preset preset) {
+// Preset immediately sets (CC) provided parameterp.
+func (p *Project) Preset(track Track, preset Preset) {
 	for parameter, value := range preset {
-		f.cc(track, parameter, value)
+		p.cc(track, parameter, value)
 	}
 }
 
 // Note fires immediately a midi note on signal followed by a note off specified duration in milliseconds (ms).
 // Optionally user can pass a preset too for convenience.
-func (f *Project) Note(track voice, note notes, velocity int8, duration float64, pre ...preset) {
+func (p *Project) Note(track Track, note Note, velocity int8, duration float64, pre ...Preset) {
+	p.mu.RLock()
+	if p.on[track] != nil {
+		p.mu.RUnlock()
+
+		p.mu.Lock()
+		p.on[track].cancel <- true
+		p.noteoff(track, p.on[track].Note)
+		p.on[track] = nil
+		p.mu.Unlock()
+	} else {
+		p.mu.RUnlock()
+	}
+
 	if len(pre) != 0 {
-		for i, _ := range pre {
-			f.Preset(track, pre[i])
+		for i := range pre {
+			p.Preset(track, pre[i])
 		}
 	}
 
-	f.noteon(track, note, velocity)
+	p.noteon(track, note, velocity)
+	t := time.NewTimer(time.Millisecond * time.Duration(duration))
+	p.mu.Lock()
+	p.on[track] = &active{Note: note, cancel: make(chan bool)}
+	p.mu.Unlock()
 	go func() {
-		time.Sleep(time.Millisecond * time.Duration(duration))
-		f.noteoff(track, note)
+		select {
+		case <-t.C:
+			p.noteoff(track, note)
+
+			p.mu.Lock()
+			p.on[track] = nil
+			p.mu.Unlock()
+
+		case <-p.on[track].cancel:
+			t.Stop()
+		}
 	}()
 }
 
 // CC control change.
-func (f *Project) CC(track voice, parameter Parameter, value int8) {
-	f.cc(track, parameter, value)
+func (p *Project) CC(track Track, parameter Parameter, value int8) {
+	p.cc(track, parameter, value)
 }
 
 // PC Project control change.
-func (f *Project) PC(t voice, pc int8) {
-	f.pc(t, pc)
+func (p *Project) PC(t Track, pc int8) {
+	p.pc(t, pc)
 }
 
 // Close midi connection. Use it with defer after creating a new project.
-func (s *Project) Close() {
-	s.in.Close()
-	s.out.Close()
-	s.drv.Close()
+func (p *Project) Close() {
+	p.in.Close()
+	p.out.Close()
+	p.drv.Close()
 }
 
-func (s *Project) noteon(t voice, n notes, vel int8) {
-	s.wr.SetChannel(uint8(t))
-	writer.NoteOn(s.wr, uint8(n), uint8(vel))
+func (p *Project) noteon(t Track, n Note, vel int8) {
+	p.wr.SetChannel(uint8(t))
+	writer.NoteOn(p.wr, uint8(n), uint8(vel))
 }
 
-func (s *Project) noteoff(t voice, n notes) {
-	s.wr.SetChannel(uint8(t))
-	writer.NoteOff(s.wr, uint8(n))
+func (p *Project) noteoff(t Track, n Note) {
+	p.wr.SetChannel(uint8(t))
+	writer.NoteOff(p.wr, uint8(n))
 }
 
-func (s *Project) cc(t voice, par Parameter, val int8) {
-	s.wr.SetChannel(uint8(t))
-	writer.ControlChange(s.wr, uint8(par), uint8(val))
+func (p *Project) cc(t Track, par Parameter, val int8) {
+	p.wr.SetChannel(uint8(t))
+	writer.ControlChange(p.wr, uint8(par), uint8(val))
 }
 
-func (s *Project) pc(t voice, pc int8) {
-	s.wr.SetChannel(uint8(t))
-	writer.ProgramChange(s.wr, uint8(pc))
+func (p *Project) pc(t Track, pc int8) {
+	p.wr.SetChannel(uint8(t))
+	writer.ProgramChange(p.wr, uint8(pc))
 }
 
-func PT1() preset {
+func PT1() Preset {
 	p := make(map[Parameter]int8)
 	p[MACHINE] = int8(KICK)
 	p[TRACKLEVEL] = int8(120)
@@ -442,7 +476,7 @@ func PT1() preset {
 	return p
 }
 
-func PT2() preset {
+func PT2() Preset {
 	p := PT1()
 	p[MACHINE] = int8(SNARE)
 	p[SWEEP] = int8(8)
@@ -453,7 +487,7 @@ func PT2() preset {
 	return p
 }
 
-func PT3() preset {
+func PT3() Preset {
 	p := PT1()
 	p[MACHINE] = int8(METAL)
 	p[SWEEP] = int8(48)
@@ -464,7 +498,7 @@ func PT3() preset {
 	return p
 }
 
-func PT4() preset {
+func PT4() Preset {
 	p := PT1()
 	p[MACHINE] = int8(PERC)
 	p[SWEEP] = int8(100)
@@ -475,7 +509,7 @@ func PT4() preset {
 	return p
 }
 
-func PT5() preset {
+func PT5() Preset {
 	p := PT1()
 	p[MACHINE] = int8(TONE)
 	p[SWEEP] = int8(38)
@@ -486,7 +520,7 @@ func PT5() preset {
 	return p
 }
 
-func PT6() preset {
+func PT6() Preset {
 	p := PT1()
 	p[MACHINE] = int8(CHORD)
 	p[SWEEP] = int8(43)
