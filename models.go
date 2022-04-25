@@ -306,7 +306,7 @@ type Project struct {
 	out midi.Out
 	wr  *writer.Writer
 
-	on map[Track]*active
+	noteson map[Track]*active
 }
 
 type active struct {
@@ -324,10 +324,10 @@ func NewProject(m Model) (*Project, error) {
 	}
 
 	p := &Project{
-		Model: m,
-		mu:    new(sync.RWMutex),
-		drv:   drv,
-		on:    make(map[Track]*active),
+		Model:   m,
+		mu:      new(sync.RWMutex),
+		drv:     drv,
+		noteson: make(map[Track]*active),
 	}
 
 	// find elektron and assign it to in/out
@@ -370,25 +370,23 @@ func NewProject(m Model) (*Project, error) {
 	return p, nil
 }
 
-// Preset immediately sets (CC) provided parameterp.
+// Preset immediately sets (CC) provided parameters.
 func (p *Project) Preset(track Track, preset Preset) {
-	for parameter, value := range preset {
-		p.cc(track, parameter, value)
+	for k, v := range preset {
+		p.cc(track, k, v)
 	}
 }
 
 // Note fires immediately a midi note on signal followed by a note off specified duration in milliseconds (ms).
-// Optionally user can pass a preset too for convenience.
+// Optionally we can pass a preset too. If we do so preset is applied before the noteon event.
+// If a new Note is called for the same track that a previous Note is still ongoing (dur longer than time between calls)
+// then noteoff is called immediately & previous noteoff timer is canceled.
 func (p *Project) Note(track Track, note Note, velocity int8, duration float64, pre ...Preset) {
 	p.mu.RLock()
-	if p.on[track] != nil {
+	if p.noteson[track] != nil {
+		p.noteson[track].cancel <- true
+		p.noteoff(track, p.noteson[track].Note)
 		p.mu.RUnlock()
-
-		p.mu.Lock()
-		p.on[track].cancel <- true
-		p.noteoff(track, p.on[track].Note)
-		p.on[track] = nil
-		p.mu.Unlock()
 	} else {
 		p.mu.RUnlock()
 	}
@@ -400,21 +398,23 @@ func (p *Project) Note(track Track, note Note, velocity int8, duration float64, 
 	}
 
 	p.noteon(track, note, velocity)
-	t := time.NewTimer(time.Millisecond * time.Duration(duration))
+	off := time.NewTimer(time.Millisecond * time.Duration(duration))
+
 	p.mu.Lock()
-	p.on[track] = &active{Note: note, cancel: make(chan bool)}
+	p.noteson[track] = &active{Note: note, cancel: make(chan bool)}
 	p.mu.Unlock()
+
 	go func() {
 		select {
-		case <-t.C:
+		case <-off.C:
 			p.noteoff(track, note)
 
 			p.mu.Lock()
-			p.on[track] = nil
+			p.noteson[track] = nil
 			p.mu.Unlock()
 
-		case <-p.on[track].cancel:
-			t.Stop()
+		case <-p.noteson[track].cancel:
+			off.Stop()
 		}
 	}()
 }
@@ -424,7 +424,7 @@ func (p *Project) CC(track Track, parameter Parameter, value int8) {
 	p.cc(track, parameter, value)
 }
 
-// PC Project control change.
+// PC program change.
 func (p *Project) PC(t Track, pc int8) {
 	p.pc(t, pc)
 }
