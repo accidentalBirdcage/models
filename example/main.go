@@ -11,6 +11,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	defer p.Close()
 
 	var noteLength int = 250
