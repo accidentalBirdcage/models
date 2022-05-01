@@ -8,21 +8,23 @@ import (
 
 	"gitlab.com/gomidi/midi"
 	"gitlab.com/gomidi/midi/writer"
-	driver "gitlab.com/gomidi/rtmididrv"
+	driver "gitlab.com/gomidi/portmididrv"
 )
 
+// Model name.
 type Model string
 
-// Model
 const (
+	// CYCLES .
 	CYCLES  Model = "Model:Cycles"
 	SAMPLES Model = "Model:Samples"
 )
 
+// Track
 type Track int8
 
-// Tracks
 const (
+	// T1 .
 	T1 Track = iota
 	T2
 	T3
@@ -31,9 +33,29 @@ const (
 	T6
 )
 
+// String .
+func (t Track) String() string {
+	switch t {
+	case T1:
+		return "Track 1"
+	case T2:
+		return "Track 2"
+	case T3:
+		return "Track 3"
+	case T4:
+		return "Track 4"
+	case T5:
+		return "Track 5"
+	case T6:
+		return "Track 6"
+	default:
+		return ""
+	}
+}
+
+// Note
 type Note int8
 
-// Keys/letter Note
 const (
 	A0 Note = iota + 21
 	As0
@@ -288,6 +310,26 @@ const (
 	CHORD
 )
 
+// String .
+func (m Machine) String() string {
+	switch m {
+	case KICK:
+		return "kick"
+	case SNARE:
+		return "snare"
+	case METAL:
+		return "metal"
+	case PERC:
+		return "perc"
+	case TONE:
+		return "tone"
+	case CHORD:
+		return "chord"
+	default:
+		return ""
+	}
+}
+
 type ScaleMode bool
 
 const (
@@ -373,60 +415,64 @@ func NewProject(m Model) (*Project, error) {
 // Preset immediately sets (CC) provided parameters.
 func (p *Project) Preset(track Track, preset Preset) {
 	for k, v := range preset {
-		p.cc(track, k, v)
+		p.CC(track, k, v)
 	}
 }
 
-// Note fires immediately a midi note on signal followed by a note off specified duration in milliseconds (ms).
-// Optionally we can pass a preset too. If we do so preset is applied before the noteon event.
-// If a new Note is called for the same track that a previous Note is still ongoing (dur longer than time between calls)
-// then noteoff is called immediately & previous noteoff timer is canceled.
-func (p *Project) Note(track Track, note Note, velocity int8, duration float64, pre ...Preset) {
+// Note fires immediately a midi note on signal followed by a note off
+// specified duration in milliseconds (ms). If a new Note is called for
+// the same track that a previous Note is still ongoing (dur longer than
+// time between calls) then noteoff is called immediately & previous noteoff
+// timer is canceled. It is thread safe and can be used with go routines.
+func (p *Project) Note(track Track, note Note, velocity int8, duration float64) {
+	off := time.NewTimer(time.Millisecond * time.Duration(duration))
+
 	p.mu.RLock()
 	if p.noteson[track] != nil {
-		p.noteson[track].cancel <- true
-		p.noteoff(track, p.noteson[track].Note)
+		t := p.noteson[track]
 		p.mu.RUnlock()
+		t.cancel <- true
+
+		p.mu.Lock()
+		p.noteoff(track, t.Note)
+		p.mu.Unlock()
 	} else {
 		p.mu.RUnlock()
 	}
 
-	if len(pre) != 0 {
-		for i := range pre {
-			p.Preset(track, pre[i])
-		}
-	}
-
-	p.noteon(track, note, velocity)
-	off := time.NewTimer(time.Millisecond * time.Duration(duration))
+	cancel := make(chan bool)
 
 	p.mu.Lock()
-	p.noteson[track] = &active{Note: note, cancel: make(chan bool)}
+	p.noteon(track, note, velocity)
+	p.noteson[track] = &active{Note: note, cancel: cancel}
 	p.mu.Unlock()
 
-	go func() {
+	go func(cancel chan bool) {
 		select {
 		case <-off.C:
-			p.noteoff(track, note)
-
 			p.mu.Lock()
+			p.noteoff(track, note)
 			p.noteson[track] = nil
 			p.mu.Unlock()
 
-		case <-p.noteson[track].cancel:
+		case <-cancel:
 			off.Stop()
 		}
-	}()
+	}(cancel)
 }
 
 // CC control change.
 func (p *Project) CC(track Track, parameter Parameter, value int8) {
+	p.mu.Lock()
 	p.cc(track, parameter, value)
+	p.mu.Unlock()
 }
 
 // PC program change.
 func (p *Project) PC(t Track, pc int8) {
+	p.mu.Lock()
 	p.pc(t, pc)
+	p.mu.Unlock()
 }
 
 // Close midi connection. Use it with defer after creating a new project.
@@ -456,6 +502,7 @@ func (p *Project) pc(t Track, pc int8) {
 	writer.ProgramChange(p.wr, uint8(pc))
 }
 
+// PT1 .
 func PT1() Preset {
 	p := make(map[Parameter]int8)
 	p[MACHINE] = int8(KICK)
@@ -476,6 +523,7 @@ func PT1() Preset {
 	return p
 }
 
+// PT2 .
 func PT2() Preset {
 	p := PT1()
 	p[MACHINE] = int8(SNARE)
@@ -487,6 +535,7 @@ func PT2() Preset {
 	return p
 }
 
+// PT3 .
 func PT3() Preset {
 	p := PT1()
 	p[MACHINE] = int8(METAL)
@@ -498,6 +547,7 @@ func PT3() Preset {
 	return p
 }
 
+// PT4 .
 func PT4() Preset {
 	p := PT1()
 	p[MACHINE] = int8(PERC)
@@ -509,6 +559,7 @@ func PT4() Preset {
 	return p
 }
 
+// PT5 .
 func PT5() Preset {
 	p := PT1()
 	p[MACHINE] = int8(TONE)
@@ -520,6 +571,7 @@ func PT5() Preset {
 	return p
 }
 
+// PT6 .
 func PT6() Preset {
 	p := PT1()
 	p[MACHINE] = int8(CHORD)

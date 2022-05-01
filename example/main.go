@@ -3,45 +3,60 @@ package main
 import (
 	"time"
 
-	m "github.com/bh90210/models"
+	"github.com/bh90210/models"
 )
 
 func main() {
-	p, err := m.NewProject(m.CYCLES)
+	p, err := models.NewProject(models.CYCLES)
 	if err != nil {
 		panic(err)
 	}
 
 	defer p.Close()
 
-	var noteLength int = 250
+	// Note length in ms.
+	len := 250.0
 
-	defaultPresetT1 := m.PT1()
-	p.Preset(m.T1, defaultPresetT1)
-	p.Note(m.T1, m.C4, 120, float64(noteLength))
-	time.Sleep(time.Duration(noteLength) * time.Millisecond)
+	// Get the preset sound for track 1 (kick).
+	kick := models.PT1()
+	// Apply it to track 1 (kick).
+	p.Preset(models.T1, kick)
+	// Trigger a note.
+	p.Note(models.T1, models.C4, 120, len)
 
-	p.Note(m.T2, m.C4, 120, float64(noteLength), m.PT2())
-	time.Sleep(time.Duration(noteLength) * time.Millisecond)
+	time.Sleep(time.Duration(len) * time.Millisecond)
 
-	p.Preset(m.T3, m.PT3())
-	p.CC(m.T3, m.DELAY, 0)
-	p.Note(m.T3, m.C4, 120, float64(noteLength))
-	time.Sleep(time.Duration(noteLength) * time.Millisecond)
+	// Trigger a note with a preset sound config.
+	p.Preset(models.T2, models.PT2())
+	p.Note(models.T2, models.C4, 120, len)
 
-	preset4 := m.PT4()
-	p.Preset(m.T4, preset4)
-	preset4 = make(map[m.Parameter]int8)
-	preset4[m.DELAY] = 0
-	p.Preset(m.T4, preset4)
-	p.Note(m.T4, m.C4, 120, float64(noteLength))
-	time.Sleep(time.Duration(noteLength) * time.Millisecond)
+	time.Sleep(time.Duration(len) * time.Millisecond)
 
-	p.Note(m.T5, m.C4, 120, float64(noteLength), m.PT5())
-	time.Sleep(time.Duration(noteLength) * time.Millisecond)
+	p.Preset(models.T3, models.PT3())
+	// Send an individual control change message.
+	p.CC(models.T3, models.DELAY, 0)
+	p.Note(models.T3, models.C4, 120, len)
 
-	chord := m.PT6()
-	chord[m.SHAPE] = int8(m.MajorMinor9no5)
-	p.Note(m.T6, m.C4, 120, float64(noteLength), chord)
-	time.Sleep(time.Duration(noteLength) * time.Millisecond)
+	time.Sleep(time.Duration(len) * time.Millisecond)
+
+	defaultPerc := models.PT4()
+	p.Preset(models.T4, defaultPerc)
+	// Create a new preset from scratch.
+	perc := make(map[models.Parameter]int8)
+	perc[models.DELAY] = 0
+	p.Preset(models.T4, perc)
+	p.Note(models.T4, models.C4, 120, len)
+
+	time.Sleep(time.Duration(len) * time.Millisecond)
+
+	p.Preset(models.T5, models.PT5())
+	p.Note(models.T5, models.C4, 120, len)
+
+	time.Sleep(time.Duration(len) * time.Millisecond)
+
+	chord := models.PT6()
+	// Set a particular chord to be played.
+	chord[models.SHAPE] = int8(models.Major)
+	p.CC(models.T6, models.SHAPE, chord[models.SHAPE])
+	p.Note(models.T6, models.C4, 120, len)
 }

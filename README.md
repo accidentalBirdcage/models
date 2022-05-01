@@ -4,7 +4,7 @@
 
 # elektron:models
 
-Go package to programmatically control [Elektron's](https://www.elektron.se/) **model:cycles** & **model:samples** via midi.
+Go package to programmatically control [Elektron's](https://www.elektron.se/) **model:cycles** & **model:samples** via midi & a song generator under `/generate` package.
 
 ## Prerequisites
 
@@ -45,40 +45,68 @@ Code to get a single kick drum hit at C4 key, with velocity set at `120` and len
 ```go
 package main
 
-import (
-	"time"
-
-	m "github.com/bh90210/models"
-)
+import "github.com/bh90210/models"
 
 func main() {
-	p, _ := m.NewProject(em.CYCLES)
+	p, _ := models.NewProject(models.CYCLES)
 	defer p.Close()
 
-	p.Free.Note(m.T1, m.C4, 120, 200, m.PT1())
-	time.Sleep(200 * time.Millisecond)
+    // Track, note, velocity, length (ms), preset.
+	p.Note(models.T1, models.C4, 120, 200, models.PT1())
 }
 
 ```
-There are four Free methods to use, `Preset` to set preset on the fly, `Note` to fire a note on/off for given duration, `CC` to send a single control change message && `PC` for program changes. 
+There are four methods to use, `Preset` to set preset on the fly, `Note` to fire a note on/off for given duration, `CC` to send a single control change message && `PC` for program changes. 
 
 # Generator
 
-wip
+Generator package allows to generate songs in pseudo random fashion.
 
+It will produce 4/4 songs between around 1m 30sec - 7m long & between 60 to 170 BPM, always in multiples of 8 bars, with a minimum of 32 bars per song.
+
+The API is very simple but allows for the generated song to be exported as a YAML file and subsequently imported and played back.
+
+## API
+
+### generate.NewSong 
+
+Generate a new song. It accepts an initiated project object.
+
+### generate.LoadSong
+
+Load an existing song. It accepts an initiated project object and the path to the YAML file containing the song data.
+
+### Methods
+
+#### Song.Play
+
+Start playing the song. If the song is already playing unlike the machine it will not pause but just ignore it.
+
+Play is a blocking function. It will unblock when the song is over.
+
+#### Song.Stop
+
+Stop and reset the position of the song.
+
+#### Song.Save
+
+Export generated song in YAML format.
+
+some info
+
+a sample
+
+Example code:
 ```go
 package main
 
 import (
-	m "github.com/bh90210/models"
+	"github.com/bh90210/models"
 	"github.com/bh90210/models/generate"
 )
 
 func main() {
-	p, err := m.NewProject(m.CYCLES)
-	if err != nil {
-		panic(err)
-	}
+	p, _ := models.NewProject(models.CYCLES)
 	defer p.Close()
 
 	s := generate.NewSong(p)
