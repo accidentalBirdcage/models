@@ -13,6 +13,8 @@ func main() {
 
 	defer p.Close()
 
-	s := generate.NewSong(p)
+	// s := generate.NewSong(p)
+	s, _ := generate.LoadSong(p, "/media/byron/work/models/y/2022-05-11 23:03:36.84007864 +0200 CEST m=+0.002526604.yaml")
+	// s.Save("./y/" + time.Now().String() + ".yaml")
 	s.Play()
 }

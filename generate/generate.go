@@ -2,22 +2,25 @@ package generate
 
 import (
 	"fmt"
+	"io/ioutil"
 	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/bh90210/models"
+	"gopkg.in/yaml.v3"
 )
 
 const (
-	// 8 4/4 bars of /32 beats
+	// 8 4/4 bars of /32nd beats (instead of /4).
 	MAXPATLEN = 256
 )
 
 // Song .
 type Song struct {
-	project  *models.Project
+	Project  *models.Project `yaml:"project"`
 	player   *player
-	patterns []pattern
+	Patterns []*Pattern `yaml:"patterns"`
 }
 
 type player struct {
@@ -25,28 +28,31 @@ type player struct {
 	tempo chan float64
 }
 
-type pattern struct {
-	tempo  float64
-	tracks map[models.Track]*track
+type Pattern struct {
+	Tempo  float64  `yaml:"pattern tempo"`
+	Tracks []*Track `yaml:"tracks"`
 }
 
-type track struct {
-	trigs map[int]*trig
+type Track struct {
+	ID      models.Track   `yaml:"id"`
+	Machine models.Machine `yaml:"machine"`
+	Trigs   map[int]*Trig  `yaml:"trigs"`
 }
 
-type trig struct {
-	key    models.Note
-	vel    int8
-	dur    float64
-	nudge  float64
-	preset models.Preset
+type Trig struct {
+	Key    models.Note   `yaml:"key"`
+	Vel    int8          `yaml:"velocity"`
+	Dur    float64       `yaml:"duration"`
+	Nudge  float64       `yaml:"nudge"`
+	Preset models.Preset `yaml:"preset"`
 
-	tempo float64
+	Tempo   float64        `yaml:"trig tempo"`
+	Machine models.Machine `yaml:"machine"`
 }
 
 type generator struct {
 	songTempo float64
-	bars      float64
+	bars      int
 	sections  int
 	// If sections are more than 10 they are getting halfed.
 	// This indicates longer songs.
@@ -55,43 +61,43 @@ type generator struct {
 	// be inserted creatively somewhere based on secondary options.
 	extraBar bool
 	// 4/4 8 bars each.
-	patterns []pattern
+	patterns []*Pattern
 }
 
-type yamler struct {
-}
+type yamler struct{}
 
 // LoadSong .
-func LoadSong(pathToYaml string, p *models.Project) *Song {
+func LoadSong(p *models.Project, pathToYaml string) (*Song, error) {
 	y := new(yamler)
-	patterns := y.load(pathToYaml)
-
-	return &Song{
-		project: p,
-		player: &player{
-			tempo: make(chan float64, 1),
-		},
-		patterns: patterns,
+	s, err := y.load(pathToYaml)
+	if err != nil {
+		return nil, err
 	}
+
+	s.Project = p
+	s.player = &player{
+		tempo: make(chan float64, 1),
+	}
+
+	return s, nil
 }
 
 // NewSong .
 func NewSong(p *models.Project) *Song {
 	g := new(generator)
-	patterns := g.generate()
 
 	return &Song{
-		project: p,
+		Project: p,
 		player: &player{
 			tempo: make(chan float64, 1),
 		},
-		patterns: patterns,
+		Patterns: g.generate(),
 	}
 }
 
 // Play .
 func (s *Song) Play() {
-	s.player.play(s.project, s.patterns)
+	s.player.play(s.Project, s.Patterns)
 }
 
 // Stop .
@@ -100,15 +106,15 @@ func (s *Song) Stop() {
 }
 
 // Save .
-func (s *Song) Save() {
+func (s *Song) Save(path string) error {
 	y := new(yamler)
-	y.save(s.patterns)
+	return y.save(s, path)
 }
 
-func (p *player) play(project *models.Project, patterns []pattern) {
+func (p *player) play(project *models.Project, patterns []*Pattern) {
 	if len(patterns) != 0 {
 		// Tempo is set by the tempo value of the first pattern to be played.
-		tempo := patterns[0].tempo
+		tempo := patterns[0].Tempo
 		// /8 = 32nd note per beat.
 		p.tick = time.NewTicker(time.Duration((60000/(tempo))/8) * time.Millisecond)
 		for _, pat := range patterns {
@@ -123,10 +129,9 @@ func (p *player) play(project *models.Project, patterns []pattern) {
 			}()
 
 			// When starting a new pattern always check for tempo changes.
-			if tempo != pat.tempo {
-				p.tick.Reset(time.Duration(60000/(pat.tempo)/8) * time.Millisecond)
-				// Non-thread safe.
-				tempo = pat.tempo
+			if tempo != pat.Tempo {
+				p.tick.Reset(time.Duration(60000/(pat.Tempo)/8) * time.Millisecond)
+				tempo = pat.Tempo
 			}
 
 			for i := 0; i < MAXPATLEN; i++ {
@@ -135,30 +140,28 @@ func (p *player) play(project *models.Project, patterns []pattern) {
 				}
 
 				<-p.tick.C
-				for k, track := range pat.tracks {
-					if track != nil {
-						if track.trigs[i] != nil {
-							t := time.Now()
-							go func(k models.Track, trig *trig, t time.Time) {
-								tik := time.NewTimer(time.Duration((60000/pat.tempo/8)+trig.nudge)*time.Millisecond - time.Since(t))
-								<-tik.C
+				for _, track := range pat.Tracks {
+					if track.Trigs[i] != nil {
+						t := time.Now()
+						go func(k models.Track, trig *Trig, t time.Time) {
+							tik := time.NewTimer(time.Duration((60000/pat.Tempo/8)+trig.Nudge)*time.Millisecond - time.Since(t))
+							<-tik.C
 
-								// Tempo change check.
-								if trig.tempo != 0 {
-									p.newTempo(trig.tempo)
-								}
+							// Tempo change check.
+							if trig.Tempo != 0 {
+								p.newTempo(trig.Tempo)
+							}
 
-								// Preset change check.
-								if trig.preset != nil {
-									project.Preset(k, trig.preset)
-								}
+							// Preset change check.
+							if trig.Preset != nil {
+								project.Preset(k, trig.Preset)
+							}
 
-								// Noteon check.
-								if trig.key != 0 && trig.vel != 0 && trig.dur != 0.0 {
-									project.Note(k, trig.key, trig.vel, trig.dur)
-								}
-							}(k, track.trigs[i], t)
-						}
+							// Noteon check.
+							if trig.Key != 0 && trig.Vel != 0 && trig.Dur != 0.0 {
+								project.Note(k, trig.Key, trig.Vel, trig.Dur)
+							}
+						}(track.ID, track.Trigs[i], t)
 					}
 				}
 			}
@@ -174,7 +177,7 @@ func (p *player) newTempo(t float64) {
 	p.tempo <- t
 }
 
-func (g *generator) generate() []pattern {
+func (g *generator) generate() []*Pattern {
 	rand.Seed(time.Now().Unix())
 
 	// Generate tempo.
@@ -204,14 +207,19 @@ bars:
 			}
 		}
 
-		g.bars = float64(r)
+		g.bars = r
 		break
 	}
 
 	// Generate song structure.
 	// Each pattern is an 8 bar part.
-	g.patterns = make([]pattern, int(g.bars/8))
+	g.patterns = make([]*Pattern, int(g.bars/8))
+	for i := range g.patterns {
+		g.patterns[i] = new(Pattern)
+	}
+
 	g.sections = len(g.patterns)
+
 	// If total bars are more than 10 half them (/2).
 	if g.sections >= 10 {
 		// If total bars (g.sections) is odd then minus one digit before halfing.
@@ -225,7 +233,8 @@ bars:
 
 	// Set patterns' tempo and tracks.
 	// Set first pattern's tempo to song's tempo.
-	g.patterns[0].tempo = g.songTempo
+	// g.patterns[0] = new(pattern)
+	g.patterns[0].Tempo = g.songTempo
 	// Adjust tempo per pattern and assign track in dump random
 	// way going up and down comprared to previous pattern.
 	// TODO: improve on the above fact.
@@ -233,101 +242,130 @@ bars:
 		switch {
 		case g.songTempo < 80:
 			if i != 0 {
-				g.patterns[i].tempo = g.patterns[i-1].tempo * 1.005
+				g.patterns[i].Tempo = g.patterns[i-1].Tempo * 1.005
 			}
 
 		case g.songTempo > 160:
 			if i != 0 {
-				g.patterns[i].tempo = g.patterns[i-1].tempo * 0.996
+				g.patterns[i].Tempo = g.patterns[i-1].Tempo * 0.996
 			}
 
 		case g.songTempo > 140:
 			if i != 0 {
-				g.patterns[i].tempo = g.patterns[i-1].tempo * 0.997
+				g.patterns[i].Tempo = g.patterns[i-1].Tempo * 0.997
 			}
 
 		case g.songTempo > 120:
 			if i != 0 {
-				g.patterns[i].tempo = g.patterns[i-1].tempo * 0.998
+				g.patterns[i].Tempo = g.patterns[i-1].Tempo * 0.998
 			}
 
 		case g.songTempo > 100:
 			if i != 0 {
-				g.patterns[i].tempo = g.patterns[i-1].tempo * 1.001
+				g.patterns[i].Tempo = g.patterns[i-1].Tempo * 1.001
 			}
 
 		case g.songTempo > 80:
 			if i != 0 {
-				g.patterns[i].tempo = g.patterns[i-1].tempo * 1.000
+				g.patterns[i].Tempo = g.patterns[i-1].Tempo * 1.000
 			}
 		}
 
-		totalTrack := rand.Intn(5)
-		g.patterns[i].tracks = make(map[models.Track]*track, totalTrack)
-		for ; totalTrack >= 0; totalTrack-- {
-			g.patterns[i].tracks[models.Track(rand.Intn(5))] = &track{trigs: make(map[int]*trig, MAXPATLEN)}
+		totalTracks := rand.Intn(5) + 1
+		for k := 0; k < totalTracks; k++ {
+			g.patterns[i].Tracks = append(g.patterns[i].Tracks, &Track{ID: models.Track(k), Trigs: make(map[int]*Trig, MAXPATLEN)})
 		}
 	}
 
 	// populate trigs for each pattern/track
-	for i := range g.patterns {
-		for k := range g.patterns[i].tracks {
-			for j := 0; j < 200; j++ {
-				g.patterns[i].tracks[k].trigs[j] = &trig{key: models.C4, vel: 127, dur: 100}
+	for _, pattern := range g.patterns {
+		for _, track := range pattern.Tracks {
+			valMin := 0.0
+			valMax := float64(MAXPATLEN)
+			min := 0.0
+			max := 1.0
+			randN := func() float64 {
+				return (float64(rand.Intn(MAXPATLEN))-valMin)/(valMax-valMin)*(max-min) + min
 			}
+			var ar []float64
+			for i := 0; i < MAXPATLEN/8; i++ {
+				ar = append(ar, randN())
+			}
+
+			sort.Float64s(ar)
+
+			normN := func(val float64) int {
+				return int((val-min)/(max-min)*(valMax-valMin) + valMin)
+			}
+
+			for _, j := range ar {
+				var n int
+				for {
+					n = rand.Intn(int(models.B8))
+					if n >= int(models.A0) {
+						break
+					}
+				}
+
+				track.Trigs[normN(j)] = &Trig{
+					Key: models.Note(n),
+					Vel: int8(rand.Intn(126)),
+					Dur: float64(rand.Intn(250)),
+				}
+			}
+
+			// fmt.Println(fmt.Errorf("%.4f", stat.Entropy(ar)))
 		}
 	}
 
 	// process each trig
-	fmt.Println("duration: ", time.Duration((60.0/g.songTempo)*(g.bars*4.0))*time.Second)
-	fmt.Println("tempo: ", g.patterns[0].tempo)
+	fmt.Println("duration: ", time.Duration((60.0/g.songTempo)*(float64(g.bars)*4.0))*time.Second)
+	fmt.Println("tempo: ", g.patterns[0].Tempo)
 	fmt.Println("total bars: ", g.bars)
 	fmt.Println("total patterns (8 bars): ", len(g.patterns))
 	fmt.Println("total sections: ", g.sections)
 	fmt.Println("halfed: ", g.halfed)
 	fmt.Println("extra 8 bar: ", g.extraBar)
-	fmt.Println("patterns: ", g.patterns)
-	fmt.Println("tracks: ", len(g.patterns[0].tracks))
+	fmt.Println("patterns length: ", len(g.patterns))
+	fmt.Println("pattern 0: ", g.patterns[0])
+	// for k, v := range g.patterns {
+	// 	fmt.Printf("pattern: %v %v\n", k, v.Tempo)
+	// 	fmt.Printf("tracks: %v \n", len(v.Tracks))
+	// 	for j, _ := range v.Tracks {
+	// 		fmt.Printf("track: %v\n", models.Track(j).String())
+	// 	}
+	// 	fmt.Println()
+	// }
 	// os.Exit(0)
 
 	return g.patterns
 }
 
-func (y *yamler) save(pat []pattern) {
+func (y *yamler) save(song *Song, path string) error {
+	d, err := yaml.Marshal(&song)
+	if err != nil {
+		return err
+	}
 
+	err = ioutil.WriteFile(path, d, 0664)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (y *yamler) load(filePath string) []pattern {
-	return []pattern{}
+func (y *yamler) load(path string) (*Song, error) {
+	song, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var s *Song
+	err = yaml.Unmarshal(song, &s)
+	if err != nil {
+		return nil, err
+	}
+
+	return s, nil
 }
-
-// 4
-// a a' b a''
-
-// 5
-// a a' a'' b' a'''
-// a a' b b' a'''
-// a a' a'' b b'
-
-// 6
-// a a' a'' a''' b a''''
-// a a' a'' b a''' a''''
-// a a' b b' c c'
-// a a' b b' a'' a'''
-// a a' a'' b b' a'''
-// a a' a'' a''' b b'
-
-// 7
-// i v c v c b c
-// i v c v v c o
-// v c v c b c o
-// v c v c b v c
-// v c v c b c o
-
-// 8
-// i v c v c b c o
-// v c v c b c c o
-
-// 9
-// i v c v c b c c o
-// v c v c b b c c o

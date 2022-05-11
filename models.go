@@ -37,17 +37,17 @@ const (
 func (t Track) String() string {
 	switch t {
 	case T1:
-		return "Track 1"
+		return "T1"
 	case T2:
-		return "Track 2"
+		return "T2"
 	case T3:
-		return "Track 3"
+		return "T3"
 	case T4:
-		return "Track 4"
+		return "T4"
 	case T5:
-		return "Track 5"
+		return "T5"
 	case T6:
-		return "Track 6"
+		return "T6"
 	default:
 		return ""
 	}
@@ -156,6 +156,14 @@ const (
 	A8
 	As8
 	B8
+	// C9
+	// Cs9
+	// D9
+	// Ds9
+	// E9
+	// F9
+	// Fs9
+	// G9
 
 	Bf0 Note = As0
 	Df1 Note = Cs1
@@ -339,7 +347,7 @@ const (
 
 // Project long description of the data structure, methods, behaviors and useage.
 type Project struct {
-	Model
+	Model `yaml:"model"`
 
 	mu *sync.RWMutex
 	// midi fields
@@ -432,10 +440,8 @@ func (p *Project) Note(track Track, note Note, velocity int8, duration float64) 
 		t := p.noteson[track]
 		p.mu.RUnlock()
 		t.cancel <- true
+		<-t.cancel
 
-		p.mu.Lock()
-		p.noteoff(track, t.Note)
-		p.mu.Unlock()
 	} else {
 		p.mu.RUnlock()
 	}
@@ -457,6 +463,11 @@ func (p *Project) Note(track Track, note Note, velocity int8, duration float64) 
 
 		case <-cancel:
 			off.Stop()
+			p.mu.Lock()
+			p.noteoff(track, note)
+			p.noteson[track] = nil
+			p.mu.Unlock()
+			cancel <- true
 		}
 	}(cancel)
 }

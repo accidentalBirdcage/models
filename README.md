@@ -12,14 +12,13 @@ Go package to programmatically control [Elektron's](https://www.elektron.se/) **
 
 Install Go https://golang.org/doc/install.
 
-### RtMidi
+### PortMIDI
 
 #### Ubuntu 20.04+
 
 ```console
-apt install librtmidi4 librtmidi-dev
+sudo apt install libportmidi-dev
 ```
-For older versions take a look [here](https://launchpad.net/ubuntu/+source/rtmidi).
 
 #### MacOS
 

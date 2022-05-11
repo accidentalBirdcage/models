@@ -17,3 +17,4 @@ mem.pb.gz
 .vscode/*
 examples/record
 out.wav
+/y/*
