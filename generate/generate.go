@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	// 8 4/4 bars of /32nd beats (instead of /4).
+	// MAXPATLEN maximum pattern length = 8 4/4 bars of /32nd beats (instead of /4).
 	MAXPATLEN = 256
 )
 
@@ -46,8 +46,8 @@ type Trig struct {
 	Nudge  float64       `yaml:"nudge"`
 	Preset models.Preset `yaml:"preset"`
 
-	Tempo   float64        `yaml:"trig tempo"`
-	Machine models.Machine `yaml:"machine"`
+	Tempo   float64         `yaml:"trig tempo"`
+	Machine *models.Machine `yaml:"machine"`
 }
 
 type generator struct {
@@ -71,7 +71,7 @@ func LoadSong(p *models.Project, pathToYaml string) (*Song, error) {
 	y := new(yamler)
 	s, err := y.load(pathToYaml)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("couldn't load song from YAML file: %w", err)
 	}
 
 	s.Project = p
@@ -134,6 +134,11 @@ func (p *player) play(project *models.Project, patterns []*Pattern) {
 				tempo = pat.Tempo
 			}
 
+			for _, track := range pat.Tracks {
+				// Set Machine for track.
+				project.CC(track.ID, models.MACHINE, int8(track.Machine))
+			}
+
 			for i := 0; i < MAXPATLEN; i++ {
 				if i == MAXPATLEN {
 					break
@@ -150,6 +155,11 @@ func (p *player) play(project *models.Project, patterns []*Pattern) {
 							// Tempo change check.
 							if trig.Tempo != 0 {
 								p.newTempo(trig.Tempo)
+							}
+
+							// Machine change check.
+							if trig.Machine != nil {
+								project.CC(track.ID, models.MACHINE, int8(*trig.Machine))
 							}
 
 							// Preset change check.
@@ -271,9 +281,16 @@ bars:
 			}
 		}
 
+		// decide total tracks
 		totalTracks := rand.Intn(5) + 1
+		// decide machines for each track
+
 		for k := 0; k < totalTracks; k++ {
-			g.patterns[i].Tracks = append(g.patterns[i].Tracks, &Track{ID: models.Track(k), Trigs: make(map[int]*Trig, MAXPATLEN)})
+			g.patterns[i].Tracks = append(g.patterns[i].Tracks, &Track{
+				ID:      models.Track(k),
+				Machine: models.Machine(rand.Intn(5)),
+				Trigs:   make(map[int]*Trig, MAXPATLEN),
+			})
 		}
 	}
 
@@ -287,12 +304,17 @@ bars:
 			randN := func() float64 {
 				return (float64(rand.Intn(MAXPATLEN))-valMin)/(valMax-valMin)*(max-min) + min
 			}
+
 			var ar []float64
 			for i := 0; i < MAXPATLEN/8; i++ {
 				ar = append(ar, randN())
 			}
 
 			sort.Float64s(ar)
+
+			// quantize rhythm.
+
+			// quantize harmony.
 
 			normN := func(val float64) int {
 				return int((val-min)/(max-min)*(valMax-valMin) + valMin)
@@ -307,14 +329,27 @@ bars:
 					}
 				}
 
+				p := make(models.Preset)
+				p[models.COLOR] = int8(rand.Intn(126))
+				p[models.CONTOUR] = int8(rand.Intn(126))
+				p[models.DECAY] = int8(rand.Intn(126))
+				p[models.REVERB] = int8(rand.Intn(126))
+				p[models.SWEEP] = int8(rand.Intn(126))
+				p[models.SHAPE] = int8(rand.Intn(126))
+				p[models.DELAY] = int8(rand.Intn(126))
+				p[models.GATE] = int8(rand.Intn(126))
+
 				track.Trigs[normN(j)] = &Trig{
 					Key: models.Note(n),
 					Vel: int8(rand.Intn(126)),
-					Dur: float64(rand.Intn(250)),
+					Dur: float64(rand.Intn(100)),
+
+					Preset: p,
 				}
+
 			}
 
-			// fmt.Println(fmt.Errorf("%.4f", stat.Entropy(ar)))
+			// fmt.Println("track", track, fmt.Errorf("%.4f", stat.Entropy(ar)))
 		}
 	}
 
@@ -328,15 +363,16 @@ bars:
 	fmt.Println("extra 8 bar: ", g.extraBar)
 	fmt.Println("patterns length: ", len(g.patterns))
 	fmt.Println("pattern 0: ", g.patterns[0])
-	// for k, v := range g.patterns {
-	// 	fmt.Printf("pattern: %v %v\n", k, v.Tempo)
-	// 	fmt.Printf("tracks: %v \n", len(v.Tracks))
-	// 	for j, _ := range v.Tracks {
-	// 		fmt.Printf("track: %v\n", models.Track(j).String())
-	// 	}
-	// 	fmt.Println()
-	// }
-	// os.Exit(0)
+
+	for k, v := range g.patterns {
+		fmt.Printf("pattern: %v %v\n", k, v.Tempo)
+		fmt.Printf("tracks: %v \n", len(v.Tracks))
+		for j, t := range v.Tracks {
+			fmt.Printf("track: %v\n", models.Track(j).String())
+			fmt.Printf("machine: %v\n", t.Machine)
+		}
+		fmt.Println()
+	}
 
 	return g.patterns
 }
@@ -368,4 +404,21 @@ func (y *yamler) load(path string) (*Song, error) {
 	}
 
 	return s, nil
+}
+
+func intervallic(s []int) []int {
+	var i []int
+	for k := range s {
+		switch {
+		case k+1 >= len(s):
+			return i
+
+		case s[k] < s[k+1]:
+			i = append(i, s[k+1]-s[k])
+
+		case s[k] > s[k+1]:
+			i = append(i, s[k]-s[k+1])
+		}
+	}
+	return i
 }
