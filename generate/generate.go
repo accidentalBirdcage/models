@@ -101,24 +101,21 @@ func (p *player) play(project *models.Project, tracks []*Track) error {
 		p.tick = time.NewTicker(time.Duration(60000/tempo/64) * time.Millisecond)
 		go func() {
 			for {
-				<-p.tick.C
+				select {
+				case <-p.tick.C:
+					for _, track := range tracks {
+						track.fire <- models.TwoHundredFiftySix
+					}
 
-				for _, track := range tracks {
-					track.fire <- models.TwoHundredFiftySix
+				case tempo = <-p.tempo:
+					p.tick.Reset(time.Duration(60000/tempo/64) * time.Millisecond)
 				}
-			}
-		}()
-
-		go func() {
-			for {
-				tempo = <-p.tempo
-				p.tick.Reset(time.Duration(60000/tempo/64) * time.Millisecond)
 			}
 		}()
 
 		for _, track := range tracks {
 			go func(track *Track) {
-				for _, trig := range track.Trigs {
+				for i, trig := range track.Trigs {
 					if trig.First != nil {
 						for {
 							if *trig.First == 0 {
@@ -151,6 +148,12 @@ func (p *player) play(project *models.Project, tracks []*Track) error {
 					}
 
 					for {
+						if len(track.Trigs) >= i+1+1 {
+							if track.Trigs[i+1].Nudge != 0 {
+								trig.Length = trig.Length + track.Trigs[i+1].Nudge
+							}
+						}
+
 						if trig.Length == 0 {
 							break
 						}
@@ -188,10 +191,10 @@ type Trig struct {
 	Key    models.Note   `yaml:"key"`
 	Vel    int8          `yaml:"velocity"`
 	Dur    models.Value  `yaml:"duration"`
-	Nudge  models.Value  `yaml:"nudge"`
 	Length models.Value  `yaml:"length"`
 	Preset models.Preset `yaml:"preset,omitempty"`
 
+	Nudge   models.Value    `yaml:"nudge"`
 	Tempo   *float64        `yaml:"tempo,omitempty"`
 	Machine *models.Machine `yaml:"machine,omitempty"`
 
