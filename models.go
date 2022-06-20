@@ -208,6 +208,32 @@ const (
 	Bf8 Note = As8
 )
 
+type Value float64
+
+const (
+	Large              Value = 8
+	Long               Value = 4
+	Double             Value = 2
+	Whole              Value = 1
+	Half               Value = 0.5
+	Quarter            Value = 0.25
+	Eighth             Value = 0.125
+	Sixteenth          Value = 0.0625
+	ThirtySecond       Value = 0.03125
+	SixtyFourth        Value = 0.015625
+	HundredTwentyEight Value = 0.0078125
+	TwoHundredFiftySix Value = 0.00390625
+
+	OneDot    Value = 1.5
+	TwoDots   Value = 1.75
+	ThreeDots Value = 1.875
+	FourDots  Value = 1.9375
+)
+
+func (v Value) Float64() float64 {
+	return float64(v)
+}
+
 type Chords int8
 
 // Chords
@@ -338,12 +364,12 @@ func (m Machine) String() string {
 	}
 }
 
-type ScaleMode bool
+// type ScaleMode bool
 
-const (
-	PTN ScaleMode = true
-	TRK ScaleMode = false
-)
+// const (
+// 	PTN ScaleMode = true
+// 	TRK ScaleMode = false
+// )
 
 // Project long description of the data structure, methods, behaviors and useage.
 type Project struct {
